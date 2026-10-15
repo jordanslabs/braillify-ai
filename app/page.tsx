@@ -17,6 +17,7 @@ import {
   Menu,
   Mic,
   MicOff,
+  RefreshCw,
   ScanLine,
   Share2,
   Sparkles,
@@ -69,17 +70,36 @@ function useToast() {
   return { toasts, notify };
 }
 
-function Wave({ fill }: { fill: string }) {
+function Wave({
+  fill,
+  variant = "generator",
+}: {
+  fill: string;
+  variant?: "scan" | "generator";
+}) {
+  const isScanWave = variant === "scan";
+
   return (
     <svg
       aria-hidden="true"
-      className="pointer-events-none absolute bottom-0 left-0 block h-[58px] w-full"
+      className="pointer-events-none absolute bottom-[-1px] left-0 z-[2] block h-auto w-full overflow-visible"
+      fill="none"
       preserveAspectRatio="none"
-      viewBox="0 0 390 58"
+      viewBox={isScanWave ? "0 0 390 120" : "0 0 390 72"}
+      xmlns="http://www.w3.org/2000/svg"
     >
       <path
-        d="M0 35C78 8 145 3 214 22c68 19 116 39 176 7v29H0V35Z"
+        d={
+          isScanWave
+            ? "M0,0 C60,95 160,115 240,65 C300,25 350,45 390,70 L390,120 L0,120 Z"
+            : "M0 8C56 8 80 34 141 39C202 44 231 34 278 42C328 51 349 53 390 29V72H0V8Z"
+        }
         fill={fill}
+        style={
+          isScanWave
+            ? { filter: "drop-shadow(0px -12px 16px rgba(0, 0, 0, 0.25))" }
+            : undefined
+        }
       />
     </svg>
   );
@@ -313,10 +333,13 @@ function ScanScreen({
           <ChevronRight size={13} className="text-white/35" />
         </Link>
 
-        <Wave fill="#F0F2FA" />
+        <Wave fill="#F0F2FA" variant="scan" />
       </section>
 
-      <section className="surf-light relative z-10 flex min-h-0 flex-[0.94] flex-col px-5 pb-3 pt-2">
+      <section
+        className="surf-light relative z-10 flex min-h-0 flex-[0.94] flex-col px-5 pb-3 pt-3"
+        style={{ background: "linear-gradient(150deg, #F0F2FA 0%, #FFFFFF 100%)" }}
+      >
         <div className="result-card relative rounded-[20px] px-4 py-3">
           <div className="mb-1.5 flex items-center justify-between">
             <p className="text-[9px] font-bold uppercase tracking-[0.17em] text-[#8888AA]">
@@ -423,11 +446,11 @@ function ScanScreen({
           </button>
           <button
             aria-label="Beralih ke mode Generator Braille"
-            className="btn-circle-neu -mt-5 flex h-[48px] w-[48px] items-center justify-center rounded-full border border-white/70 text-[#6C63FF]"
+            className="btn-circle-glow -mt-5 flex h-[48px] w-[48px] items-center justify-center rounded-full border border-[#A89BFF]/25 text-white shadow-[0_0_24px_rgba(108,99,255,.3)]"
             onClick={onToggleMode}
             type="button"
           >
-            <ArrowLeftRight size={20} />
+            <RefreshCw size={19} />
           </button>
           <span className="flex flex-col items-center gap-0.5 text-[#9A9BB4]">
             <Clock3 size={17} />
@@ -480,7 +503,10 @@ function GeneratorScreen({
 }) {
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#F0F2FA]">
-      <section className="surf-light relative z-0 flex min-h-0 flex-[1.16] flex-col px-5 pb-[58px] pt-4">
+      <section
+        className="surf-light relative z-0 flex min-h-0 flex-[1.16] flex-col px-5 pb-[58px] pt-4"
+        style={{ background: "linear-gradient(150deg, #F0F2FA 0%, #FFFFFF 100%)" }}
+      >
         <div className="relative z-10 flex items-start justify-between">
           <div>
             <p className="mb-1 text-[9px] font-bold uppercase tracking-[0.2em] text-[#8178E8]">
