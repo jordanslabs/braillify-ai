@@ -1,9 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
   cacheComponents: true,
   partialPrefetching: true,
+  // Allow HMR from the physical Android device on the same LAN
+  allowedDevOrigins: ["192.168.100.54"],
   turbopack: {
     rules: {
       "*.css": {
