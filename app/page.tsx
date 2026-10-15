@@ -1,13 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import Image from "next/image";
 import {
   AlertCircle,
-  ArrowLeftRight,
-  AudioLines,
+  Camera,
+  CameraOff,
   Check,
-  ChevronRight,
   Clock3,
   Cloud,
   Copy,
@@ -37,6 +36,7 @@ const SCAN_RESULT = "UNIVERSITAS TEUKU UMAR";
 const GRADES = ["Grade 1", "Grade 2", "Angka", "Tanda Baca"] as const;
 type Grade = (typeof GRADES)[number];
 type ScreenMode = "scan" | "generator";
+type CameraStatus = "idle" | "requesting" | "streaming" | "off" | "error" | "unsupported";
 type ToastKind = "success" | "error" | "info";
 
 interface ToastMessage {
@@ -80,28 +80,39 @@ function Wave({
   const isScanWave = variant === "scan";
 
   return (
-    <svg
-      aria-hidden="true"
-      className="pointer-events-none absolute bottom-[-1px] left-0 z-[2] block h-auto w-full overflow-visible"
-      fill="none"
-      preserveAspectRatio="none"
-      viewBox={isScanWave ? "0 0 390 120" : "0 0 390 72"}
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d={
-          isScanWave
-            ? "M0,0 C60,95 160,115 240,65 C300,25 350,45 390,70 L390,120 L0,120 Z"
-            : "M0 8C56 8 80 34 141 39C202 44 231 34 278 42C328 51 349 53 390 29V72H0V8Z"
-        }
-        fill={fill}
-        style={
-          isScanWave
-            ? { filter: "drop-shadow(0px -12px 16px rgba(0, 0, 0, 0.25))" }
-            : undefined
-        }
+    <div className="relative z-10 -mx-5 -mt-4 -mb-px w-[calc(100%+2.5rem)] shrink-0 overflow-hidden leading-none">
+      <svg
+        aria-hidden="true"
+        className="block h-auto w-full drop-shadow-[0_-14px_16px_rgba(0,0,0,0.35)]"
+        fill="none"
+        preserveAspectRatio="none"
+        viewBox="0 0 1440 320"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d={
+            isScanWave
+              ? "M0,64 C380,180 820,30 1440,160 L1440,320 L0,320 Z"
+              : "M0,160 C620,30 1060,180 1440,64 L1440,320 L0,320 Z"
+          }
+          fill={fill}
+        />
+      </svg>
+    </div>
+  );
+}
+
+function LogoBadge() {
+  return (
+    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#E8EAF5] p-1.5 shadow-[3px_3px_6px_rgba(163,177,198,0.4),-3px_-3px_6px_rgba(255,255,255,0.8)]">
+      <Image
+        alt="Logo Braillify"
+        className="h-full w-full object-contain"
+        height={28}
+        src="/logo-braillify.png"
+        width={28}
       />
-    </svg>
+    </div>
   );
 }
 
@@ -121,7 +132,7 @@ function OfflineBadge() {
         <span className="relative inline-flex h-2 w-2 rounded-full bg-[#3DD9A4]" />
       </span>
       <span className="text-[9px] font-bold tracking-[0.12em] text-[#80E7C4]">
-        LOCAL ENGINE · OFFLINE READY
+        FULLY OFFLINE · LOCAL ENGINE
       </span>
     </div>
   );
@@ -130,14 +141,22 @@ function OfflineBadge() {
 function ModeSwitch({
   mode,
   onSelect,
+  surface,
 }: {
   mode: ScreenMode;
   onSelect: (mode: ScreenMode) => void;
+  surface: "dark" | "light";
 }) {
+  const isLight = surface === "light";
+
   return (
     <div
       aria-label="Pilih mode Braillify"
-      className="flex shrink-0 items-center gap-0.5 rounded-[13px] border border-white/10 bg-black/10 p-1"
+      className={`flex shrink-0 items-center gap-0.5 rounded-[13px] border p-1 ${
+        isLight
+          ? "border-[#7778A0]/10 bg-[#D9DCEC]/45"
+          : "border-white/10 bg-black/10"
+      }`}
       role="group"
     >
       {(["scan", "generator"] as const).map((item) => (
@@ -145,8 +164,12 @@ function ModeSwitch({
           aria-pressed={mode === item}
           className={`rounded-[9px] px-2.5 py-1.5 text-[9px] font-bold transition ${
             mode === item
-              ? "bg-white/[0.13] text-white shadow-[inset_0_1px_0_rgba(255,255,255,.12)]"
-              : "text-white/45 hover:text-white/75"
+              ? isLight
+                ? "bg-white/90 text-[#3C3D62] shadow-[2px_2px_6px_rgba(166,175,195,.28),-2px_-2px_5px_rgba(255,255,255,.72)]"
+                : "bg-white/[0.13] text-white shadow-[inset_0_1px_0_rgba(255,255,255,.12)]"
+              : isLight
+                ? "text-[#8889A4] hover:text-[#4E5078]"
+                : "text-white/45 hover:text-white/75"
           }`}
           key={item}
           onClick={() => onSelect(item)}
@@ -233,111 +256,241 @@ function ScanScreen({
   isSpeaking: boolean;
   exportBusy: boolean;
 }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [cameraEnabled, setCameraEnabled] = useState(true);
+  const [cameraRetry, setCameraRetry] = useState(0);
+  const [cameraStatus, setCameraStatus] = useState<CameraStatus>("idle");
+  const [cameraError, setCameraError] = useState("");
+
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.srcObject = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!active || !cameraEnabled) {
+      stopCamera();
+      return;
+    }
+
+    let cancelled = false;
+    let pendingStream: MediaStream | null = null;
+
+    const startCamera = async () => {
+      setCameraError("");
+      setCameraStatus("requesting");
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraStatus("unsupported");
+        setCameraError("Kamera tidak tersedia. Gunakan HTTPS atau browser yang mendukung kamera.");
+        return;
+      }
+
+      try {
+        pendingStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+
+        if (cancelled) {
+          pendingStream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        const video = videoRef.current;
+        if (!video) {
+          pendingStream.getTracks().forEach((track) => track.stop());
+          setCameraStatus("error");
+          setCameraError("Jendela kamera belum siap. Coba aktifkan kamera kembali.");
+          return;
+        }
+
+        streamRef.current = pendingStream;
+        video.srcObject = pendingStream;
+        await video.play();
+
+        if (!cancelled) setCameraStatus("streaming");
+      } catch (error) {
+        pendingStream?.getTracks().forEach((track) => track.stop());
+        if (streamRef.current === pendingStream) streamRef.current = null;
+        if (cancelled) return;
+
+        const name = error instanceof DOMException ? error.name : "";
+        setCameraStatus("error");
+        setCameraError(
+          name === "NotAllowedError" || name === "PermissionDeniedError"
+            ? "Izin kamera ditolak. Aktifkan izin kamera browser untuk melihat pratinjau."
+            : name === "NotFoundError" || name === "DevicesNotFoundError"
+              ? "Kamera tidak ditemukan pada perangkat ini."
+              : error instanceof Error
+                ? `Kamera gagal dimulai: ${error.message}`
+                : "Kamera gagal dimulai. Periksa izin dan coba kembali."
+        );
+      }
+    };
+
+    void startCamera();
+    return () => {
+      cancelled = true;
+      stopCamera();
+    };
+  }, [active, cameraEnabled, cameraRetry, stopCamera]);
+
+  const toggleCamera = useCallback(() => {
+    if (cameraEnabled) {
+      setCameraEnabled(false);
+      setCameraStatus("off");
+      setCameraError("");
+      return;
+    }
+    setCameraError("");
+    setCameraStatus("requesting");
+    setCameraEnabled(true);
+    setCameraRetry((attempt) => attempt + 1);
+  }, [cameraEnabled]);
+
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#F0F2FA]">
-      <section className="surf-dark relative flex min-h-0 flex-[1.12] flex-col px-5 pb-[58px] pt-4 text-white">
-        <div className="relative z-10 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-[9px] font-medium tracking-[0.16em] text-white/40">
-            <Cloud size={14} strokeWidth={1.7} />
-            <span>BRAILLIFY · LOCAL</span>
+    <div className="relative flex h-auto min-h-dvh flex-col overflow-visible bg-[#F0F2FA] lg:h-full lg:min-h-0 lg:overflow-hidden">
+      <section className="surf-dark relative flex flex-none flex-col px-5 pb-0 pt-3 text-white lg:min-h-0 lg:flex-[1.52]">
+        <div className="relative z-10 grid h-9 grid-cols-3 items-center">
+          <Menu aria-hidden="true" className="text-white/65" size={18} />
+          <div className="mx-auto">
+            <LogoBadge />
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-full border border-white/15 bg-gradient-to-br from-[#B8AEFF] to-[#6C63FF] text-[10px] font-bold shadow-[0_4px_10px_rgba(0,0,0,.2)]">
-              B
-            </div>
-            <Menu aria-hidden="true" className="text-white/50" size={18} />
+          <div className="flex justify-end">
+            <Cloud aria-label="Pemrosesan lokal" className="text-white/65" size={16} strokeWidth={1.8} />
           </div>
         </div>
 
-        <div className="relative z-10 mt-4 flex items-center justify-between gap-2">
-          <div>
-            <p className="mb-1 text-[9px] font-bold uppercase tracking-[0.2em] text-[#9B89FF]">
-              01 / Braille ke Latin
-            </p>
-            <h1 className="text-[20px] font-semibold leading-tight tracking-[-0.04em] text-white">
-              Pindai Braille
-            </h1>
+        <div className="relative z-10 mt-2 text-center">
+          <p className="text-[22px] font-bold leading-tight tracking-[-0.045em] text-[#F0EFFF]">
+            BRAILLIFY-AI
+          </p>
+          <h1 className="mt-0.5 text-[13px] font-medium tracking-[0.02em] text-white/65">
+            Pindai Huruf Braille
+          </h1>
+          <div className="mt-2 flex justify-center">
+            <ModeSwitch mode={mode} onSelect={onSelectMode} surface="dark" />
           </div>
-          <ModeSwitch mode={mode} onSelect={onSelectMode} />
         </div>
 
-        <div className="relative z-10 mt-3">
+        <div className="relative z-10 mt-3 flex justify-center">
           <OfflineBadge />
         </div>
 
-        <div className="viewfinder relative mt-4 h-[250px] min-h-[240px] shrink-0 overflow-hidden rounded-[21px] border border-[#67E6DE]/25 lg:h-auto lg:min-h-[150px] lg:flex-1 lg:shrink">
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_52%_46%,rgba(62,207,207,.13),transparent_58%)]" />
-          <div className="absolute inset-0 opacity-35 [background-image:linear-gradient(rgba(62,207,207,.09)_1px,transparent_1px),linear-gradient(90deg,rgba(62,207,207,.09)_1px,transparent_1px)] [background-size:24px_24px]" />
-          <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-lg border border-white/10 bg-black/35 px-2 py-1 text-[8px] font-semibold tracking-wide text-white/55">
-            <ScanLine size={11} className="text-[#65DFCE]" />
-            LIVE VIEWFINDER
-          </div>
-
-          <div className="neon-bbox absolute inset-x-[13%] top-[24%] flex h-[53%] flex-col items-center justify-center rounded-xl border border-[#5DE5DE]/80 bg-[#1B1B36]/25 shadow-[0_0_22px_rgba(62,207,207,.12),inset_0_0_15px_rgba(62,207,207,.08)]">
-            <div className="absolute -top-3 left-2 flex items-center gap-1.5 rounded-md border border-[#3ECFCF]/25 bg-[#1B1B36]/90 px-2 py-1">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#3ECFCF]" />
-              <span className="text-[8px] font-semibold text-[#71E5DE]">
-                Karakter Braille · Conf 98.6%
-              </span>
-            </div>
-            <div aria-hidden="true" className="flex items-center gap-4">
-              {[
-                [1, 0, 1, 0, 0, 1],
-                [0, 1, 1, 1, 1, 0],
-                [1, 1, 0, 1, 0, 0],
-              ].map((dots, cellIndex) => (
-                <div className="flex flex-col gap-[5px]" key={cellIndex}>
-                  {[0, 1, 2].map((row) => (
-                    <div className="flex gap-[5px]" key={row}>
-                      {[0, 1].map((col) => (
-                        <span
-                          className={`h-[7px] w-[7px] rounded-full ${
-                            dots[row + col * 3]
-                              ? "bg-[#63E5DF] shadow-[0_0_9px_rgba(62,207,207,.72)]"
-                              : "bg-white/10"
-                          }`}
-                          key={col}
-                        />
+        <div className="viewfinder relative mt-3 h-[250px] min-h-[240px] shrink-0 overflow-hidden rounded-[24px] border border-[#67E6DE]/25 lg:h-[250px] lg:min-h-[250px] lg:flex-none">
+          <video
+            ref={videoRef}
+            aria-label="Pratinjau kamera belakang untuk memindai Braille"
+            autoPlay
+            className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
+              cameraStatus === "streaming" ? "opacity-100" : "opacity-0"
+            }`}
+            muted
+            playsInline
+          />
+          {cameraStatus !== "streaming" && (
+            <div className="absolute inset-0 bg-[#080D18]">
+              <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_52%_46%,rgba(62,207,207,.15),transparent_58%)]" />
+              <div className="absolute inset-0 opacity-50 [background-image:linear-gradient(rgba(62,207,207,.1)_1px,transparent_1px),linear-gradient(90deg,rgba(62,207,207,.1)_1px,transparent_1px)] [background-size:24px_24px]" />
+              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 px-8 text-center">
+                <div aria-hidden="true" className="mb-3 flex justify-center gap-4 opacity-80">
+                  {[
+                    [1, 0, 1, 0, 0, 1],
+                    [0, 1, 1, 1, 1, 0],
+                    [1, 1, 0, 1, 0, 0],
+                  ].map((dots, cellIndex) => (
+                    <div className="flex flex-col gap-[5px]" key={cellIndex}>
+                      {[0, 1, 2].map((row) => (
+                        <div className="flex gap-[5px]" key={row}>
+                          {[0, 1].map((col) => (
+                            <span
+                              className={`h-[7px] w-[7px] rounded-full ${
+                                dots[row + col * 3]
+                                  ? "bg-[#63E5DF] shadow-[0_0_9px_rgba(62,207,207,.72)]"
+                                  : "bg-white/10"
+                              }`}
+                              key={col}
+                            />
+                          ))}
+                        </div>
                       ))}
                     </div>
                   ))}
                 </div>
-              ))}
+                <p className="text-[9px] font-medium leading-relaxed text-white/55">
+                  {cameraStatus === "requesting"
+                    ? "Meminta izin kamera…"
+                    : cameraError || "Aktifkan kamera untuk pratinjau langsung"}
+                </p>
+              </div>
             </div>
+          )}
+          <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-lg border border-white/10 bg-black/35 px-2 py-1 text-[8px] font-semibold tracking-wide text-white/55">
+            <ScanLine size={11} className="text-[#65DFCE]" />
+            {cameraStatus === "streaming" ? "LIVE VIEWFINDER" : "CAMERA VIEWFINDER"}
           </div>
 
-          {[
-            "left-3 top-3 border-l-2 border-t-2",
-            "right-3 top-3 border-r-2 border-t-2",
-            "bottom-3 left-3 border-b-2 border-l-2",
-            "bottom-3 right-3 border-b-2 border-r-2",
-          ].map((corner) => (
-            <span
-              aria-hidden="true"
-              className={`absolute h-5 w-5 rounded-[3px] border-[#65DFCE] ${corner}`}
-              key={corner}
-            />
-          ))}
-          <span className="scan-line absolute left-4 right-4 h-px bg-gradient-to-r from-transparent via-[#65DFCE] to-transparent shadow-[0_0_8px_#65DFCE]" />
-          <span className="absolute bottom-3 left-0 right-0 text-center text-[8px] font-medium text-white/35">
-            Pratinjau pemindai · buka kamera untuk menangkap gambar
-          </span>
-        </div>
+          <div className="pointer-events-none absolute inset-0">
+            <div className="neon-bbox absolute inset-x-[13%] top-[24%] flex h-[53%] flex-col items-center justify-center rounded-xl border border-[#5DE5DE]/80 bg-[#1B1B36]/[0.12] shadow-[0_0_22px_rgba(62,207,207,.12),inset_0_0_15px_rgba(62,207,207,.08)]">
+              <div className="absolute -top-3 left-2 flex items-center gap-1.5 rounded-md border border-[#3ECFCF]/25 bg-[#1B1B36]/90 px-2 py-1">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#3ECFCF]" />
+                <span className="text-[8px] font-semibold text-[#71E5DE]">
+                  Karakter Braille · Conf 98.6%
+                </span>
+              </div>
+              <span className="absolute inset-0 animate-pulse rounded-xl border border-[#5DE5DE]/20" />
+            </div>
 
-        <Link
-          className="relative z-10 mt-3 flex h-10 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.07] text-[10px] font-semibold text-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,.08)] transition hover:bg-white/[0.12]"
-          href="/scanner"
-        >
-          <ScanLine size={14} className="text-[#72DFD8]" />
-          Buka kamera pemindai
-          <ChevronRight size={13} className="text-white/35" />
-        </Link>
+            {[
+              "left-3 top-3 border-l-2 border-t-2",
+              "right-3 top-3 border-r-2 border-t-2",
+              "bottom-3 left-3 border-b-2 border-l-2",
+              "bottom-3 right-3 border-b-2 border-r-2",
+            ].map((corner) => (
+              <span
+                aria-hidden="true"
+                className={`absolute h-5 w-5 rounded-[3px] border-[#65DFCE] ${corner}`}
+                key={corner}
+              />
+            ))}
+            {cameraStatus === "streaming" && (
+              <span className="scan-line absolute left-4 right-4 h-px bg-gradient-to-r from-transparent via-[#65DFCE] to-transparent shadow-[0_0_8px_#65DFCE]" />
+            )}
+          </div>
+
+          <button
+            aria-label={
+              cameraEnabled && cameraStatus !== "off"
+                ? "Matikan kamera"
+                : "Aktifkan kamera"
+            }
+            className="absolute right-2 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-xl border border-white/20 bg-[#101528]/70 text-[#83E7E0] shadow-[0_4px_14px_rgba(0,0,0,.25)] backdrop-blur-md transition hover:bg-[#101528]/90"
+            onClick={toggleCamera}
+            title={cameraEnabled ? "Matikan kamera" : "Aktifkan kamera"}
+            type="button"
+          >
+            {cameraEnabled && cameraStatus !== "off" ? (
+              <Camera size={16} />
+            ) : (
+              <CameraOff size={16} />
+            )}
+          </button>
+        </div>
 
         <Wave fill="#F0F2FA" variant="scan" />
       </section>
 
       <section
-        className="surf-light relative z-10 flex min-h-0 flex-[0.94] flex-col px-5 pb-3 pt-3"
+        className="surf-light relative z-10 flex flex-none flex-col px-5 pb-3 pt-4 lg:min-h-0 lg:flex-[0.88]"
         style={{ background: "linear-gradient(150deg, #F0F2FA 0%, #FFFFFF 100%)" }}
       >
         <div className="result-card relative rounded-[20px] px-4 py-3">
@@ -358,7 +511,7 @@ function ScanScreen({
           </p>
         </div>
 
-        <div className="mb-2 mt-3 grid grid-cols-2 gap-2">
+        <div className="mb-2 mt-2 grid grid-cols-2 gap-2">
           <button
             aria-label={isSpeaking ? "Hentikan pembacaan teks" : "Bacakan teks"}
             className="btn-3d flex h-[54px] items-center gap-2.5 rounded-[16px] px-3 text-left"
@@ -434,7 +587,7 @@ function ScanScreen({
 
         <nav
           aria-label="Navigasi pindai"
-          className="bottom-nav mt-auto flex min-h-[55px] items-center justify-around rounded-[22px] px-4 py-1.5"
+          className="bottom-nav mt-auto flex min-h-[52px] items-center justify-around rounded-[22px] px-4 py-1.5"
         >
           <button
             aria-current="page"
@@ -502,30 +655,40 @@ function GeneratorScreen({
   unsupported: string[];
 }) {
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#F0F2FA]">
+    <div className="relative flex h-auto min-h-dvh flex-col overflow-visible bg-[#F0F2FA] lg:h-full lg:min-h-0 lg:overflow-hidden">
       <section
-        className="surf-light relative z-0 flex min-h-0 flex-[1.16] flex-col px-5 pb-[58px] pt-4"
+        className="surf-light relative z-0 flex flex-none flex-col px-5 pb-0 pt-3 lg:min-h-0 lg:flex-[1.16]"
         style={{ background: "linear-gradient(150deg, #F0F2FA 0%, #FFFFFF 100%)" }}
       >
-        <div className="relative z-10 flex items-start justify-between">
-          <div>
-            <p className="mb-1 text-[9px] font-bold uppercase tracking-[0.2em] text-[#8178E8]">
-              02 / Latin &amp; suara ke Braille
-            </p>
-            <h2 className="text-[18px] font-semibold leading-tight tracking-[-0.04em] text-[#1B1B36] lg:text-[21px]">
-              Generator Braille
-            </h2>
+        <div className="relative z-10 grid h-9 grid-cols-3 items-center">
+          <Menu aria-hidden="true" className="text-[#696A8E]" size={18} />
+          <div className="mx-auto">
+            <LogoBadge />
           </div>
-          <ModeSwitch mode={mode} onSelect={onSelectMode} />
+          <div className="flex justify-end">
+            <Cloud aria-label="Mode lokal" className="text-[#77789A]" size={16} strokeWidth={1.8} />
+          </div>
         </div>
 
-        <div className="relative z-10 mt-4">
+        <div className="relative z-10 mt-3 flex items-center justify-between gap-2">
+          <div>
+            <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-[#8178E8]">
+              BRAILLIFY-AI · INPUT
+            </p>
+            <h2 className="mt-0.5 text-[17px] font-semibold leading-tight tracking-[-0.04em] text-[#1B1B36]">
+              Input Teks Latin
+            </h2>
+          </div>
+          <ModeSwitch mode={mode} onSelect={onSelectMode} surface="light" />
+        </div>
+
+        <div className="relative z-10 mt-3">
           <div className="mb-2 flex items-center justify-between">
             <label
               className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#8888AA]"
               htmlFor="braille-text"
             >
-              07 · Teks Latin
+              07 · Input teks
             </label>
             <span
               className={`text-[9px] font-semibold ${
@@ -594,8 +757,8 @@ function GeneratorScreen({
           <div className="mb-2 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Hash size={13} className="text-[#8D84DE]" />
-              <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#8888AA]">
-                08 · Matriks Braille digital
+              <p className="text-[9px] font-bold uppercase leading-snug tracking-[0.12em] text-[#555675]">
+                Representasi Braille digital (preview)
               </p>
             </div>
             <span className="rounded-full border border-[#6C63FF]/15 bg-[#6C63FF]/[0.07] px-2.5 py-1 text-[8px] font-bold text-[#6C63FF]">
@@ -644,7 +807,29 @@ function GeneratorScreen({
         <Wave fill="#1B1B36" />
       </section>
 
-      <section className="surf-dark relative z-10 flex min-h-0 flex-[0.9] flex-col px-5 pb-2 pt-[36px] text-white">
+      <section className="surf-dark relative z-10 flex flex-none flex-col overflow-hidden px-5 pb-2 pt-[36px] text-white lg:min-h-0 lg:flex-[0.9]">
+        <svg
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-0 h-32 w-full opacity-40"
+          fill="none"
+          preserveAspectRatio="none"
+          viewBox="0 0 390 128"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          {Array.from({ length: 8 }, (_, index) => {
+            const offset = index * 9;
+            return (
+              <path
+                d={`M-12 ${14 + offset} C56 ${-8 + offset} 104 ${36 + offset} 174 ${22 + offset} S300 ${8 + offset} 402 ${48 + offset}`}
+                key={index}
+                stroke="#8294FF"
+                strokeOpacity="0.38"
+                strokeWidth="0.8"
+              />
+            );
+          })}
+        </svg>
+
         <div className="mb-2 flex items-center justify-between">
           <div>
             <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/35">
@@ -657,46 +842,55 @@ function GeneratorScreen({
           <Type size={16} className="text-[#9B89FF]" />
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          {GRADES.map((preset) => (
+        <div className="relative z-10 flex gap-2">
+          {GRADES.map((preset, index) => (
             <button
               aria-pressed={grade === preset}
-              className={`flex min-h-[36px] items-center justify-between rounded-xl border px-3 text-left text-[10px] font-semibold transition ${
+              className={`flex min-h-[62px] min-w-0 flex-1 flex-col items-start justify-center gap-1 rounded-[15px] border px-2.5 text-left transition ${
                 grade === preset
-                  ? "border-[#9B89FF]/50 bg-[#8B7FFF]/[0.19] text-[#CEC8FF] shadow-[0_0_15px_rgba(108,99,255,.14)]"
-                  : "border-white/[0.08] bg-white/[0.035] text-white/50 hover:bg-white/[0.07]"
+                  ? "border-[#9B89FF]/50 bg-gradient-to-b from-[#8B7FFF]/[0.2] to-[#8B7FFF]/[0.08] text-[#CEC8FF] shadow-[0_0_15px_rgba(108,99,255,.14)]"
+                  : "border-white/[0.08] bg-white/[0.035] text-white/55 hover:bg-white/[0.07]"
               }`}
               key={preset}
               onClick={() => onGrade(preset)}
               type="button"
             >
-              <span className="flex items-center gap-2">
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    grade === preset ? "bg-[#9B89FF]" : "bg-white/20"
-                  }`}
-                />
-                {preset}
+              <span className="text-[8px] font-bold tracking-[0.16em] text-white/35">
+                {String(index + 1).padStart(2, "0")}
               </span>
-              {grade === preset && <Check size={12} className="text-[#B5ABFF]" />}
+              <span className="text-[9px] font-semibold leading-tight">{preset}</span>
+              {grade === preset && (
+                <span className="h-1 w-5 rounded-full bg-[#9B89FF] shadow-[0_0_9px_rgba(155,137,255,.8)]" />
+              )}
             </button>
           ))}
         </div>
 
-        <p className="mt-1 text-[8px] leading-relaxed text-white/30">
+        <p className="relative z-10 mt-2 text-[8px] leading-relaxed text-white/35">
           Grade 2: kontraksi belum tersedia. Angka &amp; tanda baca otomatis.
         </p>
 
-        <div className="mt-auto flex justify-center pt-2">
+        <nav
+          aria-label="Navigasi generator"
+          className="relative z-10 mt-auto flex min-h-[60px] items-center justify-around border-t border-white/[0.08] pt-2"
+        >
+          <span className="flex flex-col items-center gap-1 text-white/45">
+            <House size={17} />
+            <span className="text-[8px] font-semibold">Beranda</span>
+          </span>
           <button
             aria-label="Beralih ke mode Pindai Braille"
-            className="btn-circle-glow flex h-[47px] w-[47px] items-center justify-center rounded-full border border-[#A89BFF]/25 text-white shadow-[0_0_24px_rgba(108,99,255,.3)]"
+            className="btn-circle-glow -mt-7 flex h-[50px] w-[50px] items-center justify-center rounded-full border border-[#A89BFF]/25 text-white shadow-[0_0_24px_rgba(108,99,255,.3)]"
             onClick={onToggleMode}
             type="button"
           >
-            <ArrowLeftRight size={19} />
+            <RefreshCw size={19} />
           </button>
-        </div>
+          <span className="flex flex-col items-center gap-1 text-white/45">
+            <Clock3 size={17} />
+            <span className="text-[8px] font-semibold">Riwayat</span>
+          </span>
+        </nav>
       </section>
 
       <span
@@ -708,47 +902,22 @@ function GeneratorScreen({
   );
 }
 
-function DeviceFrame({
+function ScreenPanel({
   children,
-  title,
-  mode,
   active,
   className = "",
 }: {
   children: React.ReactNode;
-  title: string;
-  mode: string;
   active: boolean;
   className?: string;
 }) {
   return (
-    <article className={`flex h-full w-full flex-col items-stretch lg:h-auto lg:items-center ${className}`}>
-      <div className="mb-3 hidden w-full items-center justify-between px-2 lg:flex">
-        <div>
-          <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#767796]">
-            {mode}
-          </p>
-          <h2 className="text-[13px] font-bold tracking-[-0.02em] text-[#2A2B50]">
-            {title}
-          </h2>
-        </div>
-        <span
-          className={`rounded-full border px-2.5 py-1 text-[8px] font-bold tracking-[0.12em] ${
-            active
-              ? "border-[#6C63FF]/20 bg-[#6C63FF]/[0.08] text-[#6C63FF]"
-              : "border-white/50 bg-white/25 text-[#9293AB]"
-          }`}
-        >
-          {active ? "ACTIVE" : "READY"}
-        </span>
-      </div>
-      <div
-        className={`phone-bezel h-dvh min-h-0 w-full max-w-md shrink-0 rounded-none p-0 shadow-none transition-none max-lg:!bg-transparent max-lg:!shadow-none max-lg:!rounded-none lg:h-[min(710px,calc(100svh-220px))] lg:min-h-[590px] lg:w-[346px] lg:max-w-none lg:rounded-[44px] lg:p-[10px] lg:transition lg:duration-300 ${
-          active ? "lg:scale-[1.008]" : "lg:scale-100 lg:opacity-[0.94]"
-        }`}
-      >
-        <div className="screen-inner relative h-full w-full !rounded-none lg:!rounded-[34px]">{children}</div>
-      </div>
+    <article
+      className={`flex h-auto min-h-dvh w-full flex-col items-stretch transition-opacity duration-300 lg:h-[min(820px,calc(100svh-40px))] lg:min-h-[700px] lg:w-[390px] lg:max-w-none ${
+        active ? "opacity-100" : "opacity-90"
+      } ${className}`}
+    >
+      {children}
     </article>
   );
 }
@@ -924,7 +1093,7 @@ export default function Home() {
   );
 
   return (
-    <main className="relative mx-auto flex h-dvh min-h-dvh w-full max-w-md flex-col items-stretch overflow-hidden bg-[#F0F2FA] p-0 lg:h-auto lg:min-h-screen lg:max-w-none lg:items-center lg:overflow-x-hidden lg:overflow-y-auto lg:bg-transparent lg:px-4 lg:pb-8 lg:pt-5">
+    <main className="relative mx-auto flex h-dvh min-h-dvh w-full max-w-md flex-col items-stretch overflow-x-hidden overflow-y-auto bg-[#F0F2FA] p-0 lg:h-auto lg:min-h-screen lg:max-w-none lg:items-center lg:bg-transparent lg:px-4 lg:py-8">
       <div
         aria-hidden="true"
         className="pointer-events-none fixed inset-0 hidden lg:block"
@@ -937,69 +1106,24 @@ export default function Home() {
         <span className="absolute -right-24 bottom-[5%] h-[390px] w-[390px] rounded-full bg-[#6BD9D0]/[0.09] blur-[110px]" />
       </div>
 
-      <header className="relative z-10 mb-5 hidden w-full max-w-[1120px] items-center justify-between gap-4 lg:flex">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-[15px] border border-white/70 bg-[#E6E7F2]/85 text-[#6C63FF] shadow-[5px_5px_12px_rgba(140,145,185,.25),-4px_-4px_10px_rgba(255,255,255,.68)]">
-            <AudioLines size={19} />
-          </div>
-          <div>
-            <p className="text-[13px] font-extrabold tracking-[-0.04em] text-[#292A4E]">
-              Braillify<span className="text-[#7569E8]">-AI</span>
-            </p>
-            <p className="text-[9px] font-medium tracking-wide text-[#777894]">
-              ACCESSIBILITY, REIMAGINED
-            </p>
-          </div>
-        </div>
-        <div className="hidden items-center gap-2 rounded-full border border-white/50 bg-white/25 px-3 py-2 text-[9px] font-semibold text-[#666783] sm:flex">
-          <span className="h-1.5 w-1.5 rounded-full bg-[#35B88D] shadow-[0_0_8px_rgba(53,184,141,.6)]" />
-          TRANSLASI LOKAL · SIAP OFFLINE
-        </div>
-      </header>
-
       <section
         aria-label="Braillify-AI, mode pindai dan generator Braille"
-        className="relative z-10 flex h-full min-h-0 w-full flex-1 items-stretch justify-center gap-8 lg:h-auto lg:max-w-[1120px] lg:items-center lg:gap-10"
+        className="relative z-10 flex h-auto min-h-dvh w-full flex-none items-stretch justify-center gap-8 lg:min-h-0 lg:max-w-[1120px] lg:flex-1 lg:gap-8"
       >
-        <DeviceFrame
+        <ScreenPanel
           active={activeScreen === "scan"}
           className={activeScreen === "scan" ? "flex" : "hidden lg:flex"}
-          mode="SCREEN 01"
-          title="Pindai → Latin"
         >
           {scanScreen(activeScreen === "scan")}
-        </DeviceFrame>
+        </ScreenPanel>
 
-        <div className="hidden shrink-0 flex-col items-center gap-3 lg:flex">
-          <span className="h-20 w-px bg-gradient-to-b from-transparent via-[#8984C8]/40 to-transparent" />
-          <button
-            aria-label="Beralih mode aktif"
-            className="btn-circle-neu flex h-[50px] w-[50px] items-center justify-center rounded-full text-[#6C63FF]"
-            onClick={toggleMode}
-            type="button"
-          >
-            <ArrowLeftRight size={20} />
-          </button>
-          <span className="max-w-[76px] text-center text-[8px] font-semibold uppercase leading-relaxed tracking-[0.12em] text-[#7D7E9D]">
-            Ganti mode
-          </span>
-          <span className="h-20 w-px bg-gradient-to-b from-transparent via-[#8984C8]/40 to-transparent" />
-        </div>
-
-        <DeviceFrame
+        <ScreenPanel
           active={activeScreen === "generator"}
           className={activeScreen === "generator" ? "flex" : "hidden lg:flex"}
-          mode="SCREEN 02"
-          title="Latin → Braille"
         >
           {generatorScreen(activeScreen === "generator")}
-        </DeviceFrame>
+        </ScreenPanel>
       </section>
-
-      <footer className="relative z-10 mt-4 hidden w-full max-w-[1120px] items-center justify-between px-2 text-[9px] font-medium text-[#777894] lg:flex">
-        <span>Dirancang untuk komunikasi yang lebih inklusif.</span>
-        <span>TEKS &amp; BRAILLE · DI PERANGKAT</span>
-      </footer>
 
       <div
         aria-live="polite"
