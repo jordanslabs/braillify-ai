@@ -23,7 +23,6 @@ import {
   Type,
   Volume2,
   VolumeX,
-  Wifi,
   X,
 } from "lucide-react";
 
@@ -108,6 +107,38 @@ function OfflineBadge() {
   );
 }
 
+function ModeSwitch({
+  mode,
+  onSelect,
+}: {
+  mode: ScreenMode;
+  onSelect: (mode: ScreenMode) => void;
+}) {
+  return (
+    <div
+      aria-label="Pilih mode Braillify"
+      className="flex shrink-0 items-center gap-0.5 rounded-[13px] border border-white/10 bg-black/10 p-1"
+      role="group"
+    >
+      {(["scan", "generator"] as const).map((item) => (
+        <button
+          aria-pressed={mode === item}
+          className={`rounded-[9px] px-2.5 py-1.5 text-[9px] font-bold transition ${
+            mode === item
+              ? "bg-white/[0.13] text-white shadow-[inset_0_1px_0_rgba(255,255,255,.12)]"
+              : "text-white/45 hover:text-white/75"
+          }`}
+          key={item}
+          onClick={() => onSelect(item)}
+          type="button"
+        >
+          {item === "scan" ? "Pindai" : "Generator"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function DotCell({
   char,
   dots,
@@ -161,6 +192,8 @@ function DotCell({
 
 function ScanScreen({
   active,
+  mode,
+  onSelectMode,
   onToggleMode,
   onSpeak,
   onCopy,
@@ -170,6 +203,8 @@ function ScanScreen({
   exportBusy,
 }: {
   active: boolean;
+  mode: ScreenMode;
+  onSelectMode: (mode: ScreenMode) => void;
   onToggleMode: () => void;
   onSpeak: () => void;
   onCopy: () => void;
@@ -184,9 +219,8 @@ function ScanScreen({
         <div className="relative z-10 flex items-center justify-between">
           <div className="flex items-center gap-2 text-[9px] font-medium tracking-[0.16em] text-white/40">
             <Cloud size={14} strokeWidth={1.7} />
-            <span>BRAILLIFY · 09:41</span>
+            <span>BRAILLIFY · LOCAL</span>
           </div>
-          <div className="absolute left-1/2 top-[-8px] h-[5px] w-12 -translate-x-1/2 rounded-full bg-black/30" />
           <div className="flex items-center gap-2">
             <div className="flex h-7 w-7 items-center justify-center rounded-full border border-white/15 bg-gradient-to-br from-[#B8AEFF] to-[#6C63FF] text-[10px] font-bold shadow-[0_4px_10px_rgba(0,0,0,.2)]">
               B
@@ -195,23 +229,23 @@ function ScanScreen({
           </div>
         </div>
 
-        <div className="relative z-10 mt-4 flex items-end justify-between">
+        <div className="relative z-10 mt-4 flex items-center justify-between gap-2">
           <div>
             <p className="mb-1 text-[9px] font-bold uppercase tracking-[0.2em] text-[#9B89FF]">
               01 / Braille ke Latin
             </p>
-            <h1 className="text-[21px] font-semibold leading-tight tracking-[-0.04em] text-white">
+            <h1 className="text-[20px] font-semibold leading-tight tracking-[-0.04em] text-white">
               Pindai Braille
             </h1>
           </div>
-          <Wifi aria-label="Pemrosesan lokal" className="mb-1 text-[#65DFCE]" size={17} />
+          <ModeSwitch mode={mode} onSelect={onSelectMode} />
         </div>
 
         <div className="relative z-10 mt-3">
           <OfflineBadge />
         </div>
 
-        <div className="viewfinder relative mt-4 min-h-[150px] flex-1 overflow-hidden rounded-[21px] border border-[#67E6DE]/25">
+        <div className="viewfinder relative mt-4 h-[250px] min-h-[240px] shrink-0 overflow-hidden rounded-[21px] border border-[#67E6DE]/25 lg:h-auto lg:min-h-[150px] lg:flex-1 lg:shrink">
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_52%_46%,rgba(62,207,207,.13),transparent_58%)]" />
           <div className="absolute inset-0 opacity-35 [background-image:linear-gradient(rgba(62,207,207,.09)_1px,transparent_1px),linear-gradient(90deg,rgba(62,207,207,.09)_1px,transparent_1px)] [background-size:24px_24px]" />
           <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-lg border border-white/10 bg-black/35 px-2 py-1 text-[8px] font-semibold tracking-wide text-white/55">
@@ -403,8 +437,8 @@ function ScanScreen({
       </section>
 
       <span
-        className={`pointer-events-none absolute inset-0 rounded-[34px] ring-1 ring-inset transition ${
-          active ? "ring-white/35" : "ring-white/15"
+        className={`pointer-events-none absolute inset-0 transition lg:rounded-[34px] lg:ring-1 lg:ring-inset ${
+          active ? "lg:ring-white/35" : "lg:ring-white/15"
         }`}
       />
     </div>
@@ -413,6 +447,8 @@ function ScanScreen({
 
 function GeneratorScreen({
   active,
+  mode,
+  onSelectMode,
   inputText,
   onChangeText,
   onClear,
@@ -427,6 +463,8 @@ function GeneratorScreen({
   unsupported,
 }: {
   active: boolean;
+  mode: ScreenMode;
+  onSelectMode: (mode: ScreenMode) => void;
   inputText: string;
   onChangeText: (value: string) => void;
   onClear: () => void;
@@ -448,13 +486,11 @@ function GeneratorScreen({
             <p className="mb-1 text-[9px] font-bold uppercase tracking-[0.2em] text-[#8178E8]">
               02 / Latin &amp; suara ke Braille
             </p>
-            <h2 className="text-[21px] font-semibold leading-tight tracking-[-0.04em] text-[#1B1B36]">
+            <h2 className="text-[18px] font-semibold leading-tight tracking-[-0.04em] text-[#1B1B36] lg:text-[21px]">
               Generator Braille
             </h2>
           </div>
-          <div className="mt-1 flex h-9 w-9 items-center justify-center rounded-[14px] bg-[#ECEEF8] text-[#7168D8] shadow-[4px_4px_9px_rgba(166,175,195,.35),-4px_-4px_9px_rgba(255,255,255,.8)]">
-            <Sparkles size={16} />
-          </div>
+          <ModeSwitch mode={mode} onSelect={onSelectMode} />
         </div>
 
         <div className="relative z-10 mt-4">
@@ -638,8 +674,8 @@ function GeneratorScreen({
       </section>
 
       <span
-        className={`pointer-events-none absolute inset-0 rounded-[34px] ring-1 ring-inset transition ${
-          active ? "ring-white/35" : "ring-white/15"
+        className={`pointer-events-none absolute inset-0 transition lg:rounded-[34px] lg:ring-1 lg:ring-inset ${
+          active ? "lg:ring-white/35" : "lg:ring-white/15"
         }`}
       />
     </div>
@@ -660,8 +696,8 @@ function DeviceFrame({
   className?: string;
 }) {
   return (
-    <article className={`flex flex-col items-center ${className}`}>
-      <div className="mb-3 flex w-full items-center justify-between px-2">
+    <article className={`flex h-full w-full flex-col items-stretch lg:h-auto lg:items-center ${className}`}>
+      <div className="mb-3 hidden w-full items-center justify-between px-2 lg:flex">
         <div>
           <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-[#767796]">
             {mode}
@@ -681,16 +717,11 @@ function DeviceFrame({
         </span>
       </div>
       <div
-        className={`phone-bezel shrink-0 p-[10px] transition duration-300 ${
-          active ? "scale-[1.008]" : "scale-100 opacity-[0.94]"
+        className={`phone-bezel h-dvh min-h-0 w-full max-w-md shrink-0 rounded-none p-0 shadow-none transition-none max-lg:!bg-transparent max-lg:!shadow-none max-lg:!rounded-none lg:h-[min(710px,calc(100svh-220px))] lg:min-h-[590px] lg:w-[346px] lg:max-w-none lg:rounded-[44px] lg:p-[10px] lg:transition lg:duration-300 ${
+          active ? "lg:scale-[1.008]" : "lg:scale-100 lg:opacity-[0.94]"
         }`}
-        style={{
-          width: "min(346px, calc(100vw - 34px))",
-          height: "min(710px, calc(100svh - 220px))",
-          minHeight: 590,
-        }}
       >
-        <div className="screen-inner relative h-full w-full">{children}</div>
+        <div className="screen-inner relative h-full w-full !rounded-none lg:!rounded-[34px]">{children}</div>
       </div>
     </article>
   );
@@ -715,8 +746,8 @@ export default function Home() {
   const outputText = brailleResult?.text ?? "";
   const unsupported = brailleResult?.unsupported ?? [];
 
-  const toggleMode = useCallback(() => {
-    setActiveScreen((current) => (current === "scan" ? "generator" : "scan"));
+  const selectMode = useCallback((mode: ScreenMode) => {
+    setActiveScreen(mode);
     Speech.stop();
     setIsSpeaking(false);
     Voice.stopListening();
@@ -724,6 +755,9 @@ export default function Home() {
     voiceInterimRef.current = "";
     setVoiceInterim("");
   }, []);
+  const toggleMode = useCallback(() => {
+    selectMode(activeScreen === "scan" ? "generator" : "scan");
+  }, [activeScreen, selectMode]);
 
   const handleSpeak = useCallback(() => {
     if (isSpeaking) {
@@ -833,8 +867,10 @@ export default function Home() {
       active={active}
       exportBusy={exportBusy}
       isSpeaking={isSpeaking}
+      mode={activeScreen}
       onCopy={handleCopy}
       onExport={handleExport}
+      onSelectMode={selectMode}
       onShare={handleShare}
       onSpeak={handleSpeak}
       onToggleMode={toggleMode}
@@ -848,10 +884,12 @@ export default function Home() {
       grade={grade}
       inputText={inputText}
       isListening={isListening}
+      mode={activeScreen}
       onChangeText={setInputText}
       onClear={clearInput}
       onGrade={setGrade}
       onMic={handleMic}
+      onSelectMode={selectMode}
       onToggleMode={toggleMode}
       outputText={outputText}
       unsupported={unsupported}
@@ -860,10 +898,10 @@ export default function Home() {
   );
 
   return (
-    <main className="relative flex min-h-screen flex-col items-center overflow-x-hidden overflow-y-auto px-4 pb-8 pt-5 sm:px-6 sm:pt-7">
+    <main className="relative mx-auto flex h-dvh min-h-dvh w-full max-w-md flex-col items-stretch overflow-hidden bg-[#F0F2FA] p-0 lg:h-auto lg:min-h-screen lg:max-w-none lg:items-center lg:overflow-x-hidden lg:overflow-y-auto lg:bg-transparent lg:px-4 lg:pb-8 lg:pt-5">
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed inset-0"
+        className="pointer-events-none fixed inset-0 hidden lg:block"
         style={{
           background:
             "linear-gradient(140deg, #D8D9EC 0%, #D0D1E8 47%, #C8C9E2 100%)",
@@ -873,7 +911,7 @@ export default function Home() {
         <span className="absolute -right-24 bottom-[5%] h-[390px] w-[390px] rounded-full bg-[#6BD9D0]/[0.09] blur-[110px]" />
       </div>
 
-      <header className="relative z-10 mb-5 flex w-full max-w-[1120px] items-center justify-between gap-4">
+      <header className="relative z-10 mb-5 hidden w-full max-w-[1120px] items-center justify-between gap-4 lg:flex">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-[15px] border border-white/70 bg-[#E6E7F2]/85 text-[#6C63FF] shadow-[5px_5px_12px_rgba(140,145,185,.25),-4px_-4px_10px_rgba(255,255,255,.68)]">
             <AudioLines size={19} />
@@ -893,46 +931,9 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="relative z-10 mb-4 flex w-full max-w-[1120px] items-center justify-between gap-3 lg:hidden">
-        <div>
-          <p className="text-[9px] font-bold uppercase tracking-[0.19em] text-[#777894]">
-            Pilih mode
-          </p>
-          <h1 className="text-[15px] font-bold tracking-[-0.03em] text-[#2B2C51]">
-            Braille, lebih dekat.
-          </h1>
-        </div>
-        <div className="flex items-center gap-1 rounded-2xl border border-white/50 bg-white/30 p-1 shadow-[inset_2px_2px_5px_rgba(120,125,165,.08)]">
-          <button
-            aria-pressed={activeScreen === "scan"}
-            className={`rounded-xl px-3 py-2 text-[10px] font-bold transition ${
-              activeScreen === "scan"
-                ? "bg-[#E7E8F4] text-[#6359D2] shadow-[3px_3px_8px_rgba(130,135,175,.2),-2px_-2px_6px_rgba(255,255,255,.7)]"
-                : "text-[#777894]"
-            }`}
-            onClick={() => setActiveScreen("scan")}
-            type="button"
-          >
-            Pindai
-          </button>
-          <button
-            aria-pressed={activeScreen === "generator"}
-            className={`rounded-xl px-3 py-2 text-[10px] font-bold transition ${
-              activeScreen === "generator"
-                ? "bg-[#E7E8F4] text-[#6359D2] shadow-[3px_3px_8px_rgba(130,135,175,.2),-2px_-2px_6px_rgba(255,255,255,.7)]"
-                : "text-[#777894]"
-            }`}
-            onClick={() => setActiveScreen("generator")}
-            type="button"
-          >
-            Generator
-          </button>
-        </div>
-      </div>
-
       <section
         aria-label="Braillify-AI, mode pindai dan generator Braille"
-        className="relative z-10 flex w-full max-w-[1120px] flex-1 items-start justify-center gap-8 lg:items-center lg:gap-10"
+        className="relative z-10 flex h-full min-h-0 w-full flex-1 items-stretch justify-center gap-8 lg:h-auto lg:max-w-[1120px] lg:items-center lg:gap-10"
       >
         <DeviceFrame
           active={activeScreen === "scan"}
